@@ -20,28 +20,23 @@ def apply_affine_transform(src, srcTri, dstTri, size) :
 
 
 # Warps and alpha blends triangular regions from img1 and img2 to img
-def morph_triangle(img1, img2, img, t1, t2, t, alpha) :
-
-    # Find bounding rectangle for each triangle
+def morph_triangle(img1, img2, img, t1, t2, t, alpha, draw_triangles=True):
     r1 = cv2.boundingRect(np.float32([t1]))
     r2 = cv2.boundingRect(np.float32([t2]))
     r = cv2.boundingRect(np.float32([t]))
 
-    # Offset points by left top corner of the respective rectangles
     t1Rect = []
     t2Rect = []
     tRect = []
 
     for i in range(0, 3):
-        tRect.append(((t[i][0] - r[0]),(t[i][1] - r[1])))
-        t1Rect.append(((t1[i][0] - r1[0]),(t1[i][1] - r1[1])))
-        t2Rect.append(((t2[i][0] - r2[0]),(t2[i][1] - r2[1])))
+        tRect.append(((t[i][0] - r[0]), (t[i][1] - r[1])))
+        t1Rect.append(((t1[i][0] - r1[0]), (t1[i][1] - r1[1])))
+        t2Rect.append(((t2[i][0] - r2[0]), (t2[i][1] - r2[1])))
 
-    # Get mask by filling triangle
-    mask = np.zeros((r[3], r[2], 3), dtype = np.float32)
+    mask = np.zeros((r[3], r[2], 3), dtype=np.float32)
     cv2.fillConvexPoly(mask, np.int32(tRect), (1.0, 1.0, 1.0), 16, 0)
 
-    # Apply warpImage to small rectangular patches
     img1Rect = img1[r1[1]:r1[1] + r1[3], r1[0]:r1[0] + r1[2]]
     img2Rect = img2[r2[1]:r2[1] + r2[3], r2[0]:r2[0] + r2[2]]
 
@@ -49,11 +44,18 @@ def morph_triangle(img1, img2, img, t1, t2, t, alpha) :
     warpImage1 = apply_affine_transform(img1Rect, t1Rect, tRect, size)
     warpImage2 = apply_affine_transform(img2Rect, t2Rect, tRect, size)
 
-    # Alpha blend rectangular patches
     imgRect = (1.0 - alpha) * warpImage1 + alpha * warpImage2
 
-    # Copy triangular region of the rectangular patch to the output image
-    img[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = img[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] * ( 1 - mask ) + imgRect * mask
+    img[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = img[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] * (1 - mask) + imgRect * mask
+
+    if draw_triangles:
+        pt1 = (int(t[0][0]), int(t[0][1]))
+        pt2 = (int(t[1][0]), int(t[1][1]))
+        pt3 = (int(t[2][0]), int(t[2][1]))
+        cv2.line(img, pt1, pt2, (255, 255, 255), 1, 8, 0)
+        cv2.line(img, pt2, pt3, (255, 255, 255), 1, 8, 0)
+        cv2.line(img, pt3, pt1, (255, 255, 255), 1, 8, 0)
+
 
 
 def generate_morph_sequence(duration, frame_rate, img1, img2, points1, points2, tri_list, size, output):
@@ -138,11 +140,11 @@ def generate_weighted_image(img1, img2, points1, points2, tri_list, size, alpha,
     for i in range(len(tri_list)):
         x, y, z = int(tri_list[i][0]), int(tri_list[i][1]), int(tri_list[i][2])
         t1, t2, t = [points1[x], points1[y], points1[z]], [points2[x], points2[y], points2[z]], [points[x], points[y], points[z]]
-        morph_triangle(img1, img2, morphed_frame, t1, t2, t, alpha)
-        pt1, pt2, pt3 = (int(t[0][0]), int(t[0][1])), (int(t[1][0]), int(t[1][1])), (int(t[2][0]), int(t[2][1]))
-        cv2.line(morphed_frame, pt1, pt2, (255, 255, 255), 1, 8, 0)
-        cv2.line(morphed_frame, pt2, pt3, (255, 255, 255), 1, 8, 0)
-        cv2.line(morphed_frame, pt3, pt1, (255, 255, 255), 1, 8, 0)
+        morph_triangle(img1, img2, morphed_frame, t1, t2, t, alpha, draw_triangles=False)
+
+    res = Image.fromarray(cv2.cvtColor(np.uint8(morphed_frame), cv2.COLOR_BGR2RGB))
+    res.save(output_path, 'PNG')
+
 
     res = Image.fromarray(cv2.cvtColor(np.uint8(morphed_frame), cv2.COLOR_BGR2RGB))
     res.save(output_path, 'PNG')
