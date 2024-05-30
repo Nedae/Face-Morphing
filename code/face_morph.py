@@ -203,7 +203,7 @@ def crop_and_replace(img, points, wimg1):
 
     return wimg1
 
-def segment_and_replace(img, points, wimg1, face_indices=list(range(0, 27))):  
+def segment_and_replace(img, points, wimg1, adjust_skin_tone, face_indices=list(range(0, 27))):  
     # Convert points to a numpy array
     points = np.array(points)
     
@@ -224,7 +224,7 @@ def segment_and_replace(img, points, wimg1, face_indices=list(range(0, 27))):
     cv2.imwrite("results/mask.png", mask)  # Save the mask image
     
     # Apply the mask and replace the region in wimg1 with the corresponding region from img
-    replaced_img = apply_mask_and_replace(img, wimg1, mask)
+    replaced_img = apply_mask_and_replace(img, wimg1, mask, adjust_skin_tone)
 #     Image.fromarray(cv2.cvtColor(np.uint8(replaced_img), cv2.COLOR_BGR2RGB)).save("results/replaced_img.png")
 
     return replaced_img
@@ -249,14 +249,16 @@ def create_convex_mask(img_shape, points):
 
     return mask
 
-def apply_mask_and_replace(src_img, dest_img, mask):
+def apply_mask_and_replace(src_img, dest_img, mask, adjust_skin_tone):
     """
-    Applies the mask to the source image and replaces the corresponding region in the destination image.
+    Applies the mask to the source image, optionally adjusts the source skin tone to match the destination,
+    and replaces the corresponding region in the destination image.
 
     Parameters:
     src_img (np.ndarray): Source image.
     dest_img (np.ndarray): Destination image.
     mask (np.ndarray): Binary mask.
+    adjust_skin_tone (bool): Whether to adjust the skin tone of the source image to match the destination image.
 
     Returns:
     np.ndarray: Image with the region replaced.
@@ -264,20 +266,44 @@ def apply_mask_and_replace(src_img, dest_img, mask):
     # Ensure the mask is binary
     mask = mask // 255
     
+    if adjust_skin_tone:
+        # Get the bounding box of the mask
+        y_indices, x_indices = np.where(mask)
+        top_y, bottom_y = y_indices.min(), y_indices.max()
+        left_x, right_x = x_indices.min(), x_indices.max()
+        
+        # Define a small box in the very top middle of the masked part
+        box_height, box_width = (bottom_y - top_y) // 10, (right_x - left_x) // 10
+        top_middle_box_dest = dest_img[top_y:top_y + box_height, left_x + (right_x - left_x) // 2 - box_width // 2:left_x + (right_x - left_x) // 2 + box_width // 2]
+        top_middle_box_src = src_img[top_y:top_y + box_height, left_x + (right_x - left_x) // 2 - box_width // 2:left_x + (right_x - left_x) // 2 + box_width // 2]
+        
+        # Calculate the mean color of the boxes
+        mean_color_dest = np.mean(top_middle_box_dest, axis=(0, 1))
+        mean_color_src = np.mean(top_middle_box_src, axis=(0, 1))
+        
+        # Adjust the source image color to match the destination image color
+        adjusted_src_img = src_img.astype(np.float32)
+        for i in range(3):  # For each color channel
+            adjusted_src_img[:, :, i] = adjusted_src_img[:, :, i] * (mean_color_dest[i] / mean_color_src[i])
+        
+        adjusted_src_img = np.clip(adjusted_src_img, 0, 255).astype(np.uint8)
+    else:
+        adjusted_src_img = src_img
+    
     # Create an inverse mask
     inverse_mask = 1 - mask
     
-    # Apply the mask to the source and destination images
-    src_region = cv2.bitwise_and(src_img, src_img, mask=mask)
-    dest_region = cv2.bitwise_and(dest_img, dest_img, mask=inverse_mask)
+    # Ensure both regions are in the same data type
+    src_region = cv2.bitwise_and(adjusted_src_img, adjusted_src_img, mask=mask.astype(np.uint8))
+    dest_region = cv2.bitwise_and(dest_img, dest_img, mask=inverse_mask.astype(np.uint8))
     
     # Combine the regions
-    combined = cv2.add(src_region, dest_region)
+    combined = cv2.add(src_region.astype(np.uint8), dest_region.astype(np.uint8))
     
     return combined
 
 
-def local_morph(img1, img2, points1, points2, tri_list, alpha, output_path):
+def local_morph(img1, img2, points1, points2, tri_list, alpha, output_path, adjust_skin_tone):
     img1 = np.float32(img1)
     img2 = np.float32(img2)
     points = []
@@ -296,7 +322,7 @@ def local_morph(img1, img2, points1, points2, tri_list, alpha, output_path):
         morph_triangle(img1, img2, morphed_frame, t1, t2, t, alpha, img_out_1, img_out_2, draw_triangles=False, context = "local")
         
     
-    img_out = segment_and_replace(morphed_frame, points, img_out_1)
+    img_out = segment_and_replace(morphed_frame, points, img_out_1, adjust_skin_tone)
     
     res = Image.fromarray(cv2.cvtColor(np.uint8(img_out), cv2.COLOR_BGR2RGB))
     res.save(output_path, 'PNG')
