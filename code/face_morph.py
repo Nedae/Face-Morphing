@@ -159,8 +159,6 @@ def generate_weighted_image(img1, img2, points1, points2, tri_list, size, alpha,
  
         
 def crop_and_replace(img, points, wimg1):    
-    wimg = Image.fromarray(cv2.cvtColor(np.uint8(wimg1), cv2.COLOR_BGR2RGB))
-    wimg.save("results/wimg1.png")
     # Convert points to a numpy array
     points = np.array(points)
     
@@ -177,27 +175,27 @@ def crop_and_replace(img, points, wimg1):
 
     gmorph = Image.fromarray(cv2.cvtColor(np.uint8(img), cv2.COLOR_BGR2RGB))
 
-    # Draw face landmarks on gmorph
-    img_with_landmarks = cv2.cvtColor(np.uint8(img), cv2.COLOR_BGR2RGB)
-    for point in points:
-        x, y = int(point[0]), int(point[1])
-        if x < 20 or y < 20 or x > 1010 or y > 1010:
-            cv2.rectangle(img_with_landmarks, (x-3, y-3), (x+3, y+3), (255, 0, 0), -1)  # Red squares for boundary points
-        else:
-            cv2.circle(img_with_landmarks, (x, y), 2, (0, 255, 0), -1)  # Green circles for regular points
+#     # Draw face landmarks on gmorph
+#     img_with_landmarks = cv2.cvtColor(np.uint8(img), cv2.COLOR_BGR2RGB)
+#     for point in points:
+#         x, y = int(point[0]), int(point[1])
+#         if x < 20 or y < 20 or x > 1010 or y > 1010:
+#             cv2.rectangle(img_with_landmarks, (x-3, y-3), (x+3, y+3), (255, 0, 0), -1)  # Red squares for boundary points
+#         else:
+#             cv2.circle(img_with_landmarks, (x, y), 2, (0, 255, 0), -1)  # Green circles for regular points
 
-    gmorph_with_landmarks = Image.fromarray(img_with_landmarks)
-    gmorph_with_landmarks.save("results/gmorph_with_landmarks.png")
+#     gmorph_with_landmarks = Image.fromarray(img_with_landmarks)
+#     gmorph_with_landmarks.save("results/gmorph_with_landmarks.png")
     
-    # Save the original gmorph for reference
-    gmorph.save("results/gmorph.png")
+#     # Save the original gmorph for reference
+#     gmorph.save("results/gmorph.png")
 
 
     # Crop the region from the original image
     cropped_img = img[y_min:y_max, x_min:x_max]
 
-    crp = Image.fromarray(cv2.cvtColor(np.uint8(cropped_img), cv2.COLOR_BGR2RGB))
-    crp.save("results/cropped.png")
+#     crp = Image.fromarray(cv2.cvtColor(np.uint8(cropped_img), cv2.COLOR_BGR2RGB))
+#     crp.save("results/cropped.png")
     
     # Determine where to place the cropped image in wimg1
     # (Assume we place it at the same bounding box location)
@@ -205,6 +203,78 @@ def crop_and_replace(img, points, wimg1):
 
     return wimg1
 
+def segment_and_replace(img, points, wimg1, face_indices=list(range(0, 27))):  
+    # Convert points to a numpy array
+    points = np.array(points)
+    
+    # Filter out landmarks that are very close to the margins
+    margin = 2
+    filtered_points = [point for point in points if margin < point[0] < img.shape[1] - margin and margin < point[1] < img.shape[0] - margin]
+    filtered_points = np.array(filtered_points)
+    
+    # Define acceptable indices for filtered points
+    acceptable_indices = set(face_indices)
+    
+    # Further filter the already filtered points based on acceptable indices
+    final_filtered_points = [filtered_points[i] for i in range(len(filtered_points)) if i in acceptable_indices]
+    final_filtered_points = np.array(final_filtered_points)
+    
+    # Create the convex mask
+    mask = create_convex_mask(img.shape, final_filtered_points)
+    cv2.imwrite("results/mask.png", mask)  # Save the mask image
+    
+    # Apply the mask and replace the region in wimg1 with the corresponding region from img
+    replaced_img = apply_mask_and_replace(img, wimg1, mask)
+#     Image.fromarray(cv2.cvtColor(np.uint8(replaced_img), cv2.COLOR_BGR2RGB)).save("results/replaced_img.png")
+
+    return replaced_img
+
+def create_convex_mask(img_shape, points):
+    """
+    Creates a binary convex mask based on the provided points.
+
+    Parameters:
+    img_shape (tuple): Shape of the image (height, width).
+    points (array-like): Array of points used to create the mask.
+
+    Returns:
+    np.ndarray: Binary mask with the same shape as the image.
+    """
+    mask = np.zeros(img_shape[:2], dtype=np.uint8)  # Create a black mask with the same height and width as the image
+    points = np.array(points, dtype=np.int32)  # Ensure the points are in the correct format for cv2.fillPoly
+
+    if len(points) > 0:
+        hull = cv2.convexHull(points)  # Create the convex hull of the points
+        cv2.fillConvexPoly(mask, hull, 255)  # Fill the area defined by the convex hull with white (255)
+
+    return mask
+
+def apply_mask_and_replace(src_img, dest_img, mask):
+    """
+    Applies the mask to the source image and replaces the corresponding region in the destination image.
+
+    Parameters:
+    src_img (np.ndarray): Source image.
+    dest_img (np.ndarray): Destination image.
+    mask (np.ndarray): Binary mask.
+
+    Returns:
+    np.ndarray: Image with the region replaced.
+    """
+    # Ensure the mask is binary
+    mask = mask // 255
+    
+    # Create an inverse mask
+    inverse_mask = 1 - mask
+    
+    # Apply the mask to the source and destination images
+    src_region = cv2.bitwise_and(src_img, src_img, mask=mask)
+    dest_region = cv2.bitwise_and(dest_img, dest_img, mask=inverse_mask)
+    
+    # Combine the regions
+    combined = cv2.add(src_region, dest_region)
+    
+    return combined
 
 
 def local_morph(img1, img2, points1, points2, tri_list, alpha, output_path):
@@ -226,7 +296,7 @@ def local_morph(img1, img2, points1, points2, tri_list, alpha, output_path):
         morph_triangle(img1, img2, morphed_frame, t1, t2, t, alpha, img_out_1, img_out_2, draw_triangles=False, context = "local")
         
     
-    img_out = crop_and_replace(morphed_frame, points, img_out_1)
+    img_out = segment_and_replace(morphed_frame, points, img_out_1)
     
     res = Image.fromarray(cv2.cvtColor(np.uint8(img_out), cv2.COLOR_BGR2RGB))
     res.save(output_path, 'PNG')
