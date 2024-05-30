@@ -27,8 +27,8 @@ def doLocalMorphing(img1, img2, alpha, output, adjust_skin_tone):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--img1", required=True, help="The First Image")
-    parser.add_argument("--img2", required=True, help="The Second Image")
+    parser.add_argument("--dest", required=True, help="The First Image")
+    parser.add_argument("--src", required=True, help="The Second Image")
     parser.add_argument("--duration", type=int, default=5, help="The duration")
     parser.add_argument("--frame", type=int, default=20, help="The frameame Rate")
     parser.add_argument("--output", required=True, help="Output file path (GIF or PNG/JPG)")
@@ -38,8 +38,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    image1 = cv2.imread(args.img1)
-    image2 = cv2.imread(args.img2)
+    image1 = cv2.imread(args.dest)
+    image2 = cv2.imread(args.src)
 
     # Determine if the output is a GIF or a single image
     if args.output.lower().endswith('.gif'):
